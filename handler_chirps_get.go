@@ -3,16 +3,41 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 
+	"github.com/connor317/bootdev-chirpy/internal/database"
 	"github.com/google/uuid"
 )
 
 func (cfg *apiConfig) handlerGetAllChirps(w http.ResponseWriter, r *http.Request) {
-	chirps, err := cfg.dbQueries.GetAllChirps(r.Context())
+	author_id := r.URL.Query().Get("author_id")
+	sortDirection := r.URL.Query().Get("sort")
+	if sortDirection != "" && sortDirection != "asc" && sortDirection != "desc" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error": "Invalid sort parameter"}`))
+		return
+	}
+	var chirps []database.Chirp
+	var err error
+	if author_id != "" {
+		chirps, err = cfg.dbQueries.GetChirpsByUserID(r.Context(), uuid.MustParse(author_id))
+	} else {
+		chirps, err = cfg.dbQueries.GetAllChirps(r.Context())
+	}
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error": "Failed to retrieve chirps"}`))
 		return
+	}
+
+	if sortDirection == "desc" {
+		sort.Slice(chirps, func(i, j int) bool {
+			return chirps[i].CreatedAt.After(chirps[j].CreatedAt)
+		})
+	} else {
+		sort.Slice(chirps, func(i, j int) bool {
+			return chirps[i].CreatedAt.Before(chirps[j].CreatedAt)
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -25,11 +50,6 @@ func (cfg *apiConfig) handlerGetAllChirps(w http.ResponseWriter, r *http.Request
 			CreatedAt: chirp.CreatedAt,
 			UpdatedAt: chirp.UpdatedAt,
 		})
-	}
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Something went wrong"}`))
-		return
 	}
 
 	dat, err := json.Marshal(respBody)
